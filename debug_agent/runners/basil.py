@@ -70,6 +70,7 @@ class BasilRunner:
         config.write_text("[pytest]\naddopts =\n", encoding="utf-8")
         env = os.environ.copy()
         env["PYTHONPATH"] = str(workspace / "src")
+        env["PYTHONDONTWRITEBYTECODE"] = "1"
         completed = subprocess.run(
             [
                 sys.executable,

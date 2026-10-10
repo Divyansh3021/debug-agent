@@ -61,10 +61,8 @@ def unified_diff(scenario_dir: Path, workspace: Path) -> str:
     original = scenario_dir / "src"
     updated = workspace / "src"
     paths: set[Path] = set()
-    if original.exists():
-        paths.update(path.relative_to(original) for path in original.rglob("*") if path.is_file())
-    if updated.exists():
-        paths.update(path.relative_to(updated) for path in updated.rglob("*") if path.is_file())
+    paths.update(_source_files(original))
+    paths.update(_source_files(updated))
     for relative in sorted(paths):
         before = (original / relative).read_text(encoding="utf-8") if (original / relative).exists() else ""
         after = (updated / relative).read_text(encoding="utf-8") if (updated / relative).exists() else ""
@@ -91,6 +89,19 @@ def unified_diff(scenario_dir: Path, workspace: Path) -> str:
             )
         )
     return "".join(chunks)
+
+
+def _source_files(root: Path) -> set[Path]:
+    if not root.exists():
+        return set()
+    found = set()
+    for path in root.rglob("*"):
+        if not path.is_file():
+            continue
+        if "__pycache__" in path.parts or path.suffix != ".py":
+            continue
+        found.add(path.relative_to(root))
+    return found
 
 
 def _apply_flag(workspace: Path, payload: dict[str, Any]) -> None:
