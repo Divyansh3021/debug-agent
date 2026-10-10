@@ -1,13 +1,9 @@
-"""Reference implementation of an agentic debugging system.
+"""An agentic debugging system, written to be read.
 
-The graph is: collect evidence, decide how much autonomy is allowed, fan out
-root-cause specialists, classify a grounded diagnosis, plan a mitigation,
-validate it, then write a reviewable diff. See ARCHITECTURE.md for why the
-pipeline is shaped this way.
+Start with ``graph.py``, then follow the order in the repository README.
 """
 
-from debug_agent.service import run_debug
+from debug_agent.graph import run_example
 
-__version__ = "0.1.0"
-
-__all__ = ["__version__", "run_debug"]
+__version__ = "0.2.0"
+__all__ = ["__version__", "run_example"]

@@ -1,106 +1,75 @@
 # debug-agent
 
-A runnable reference for an agentic debugging system. It takes an incident, collects evidence through pluggable connectors, runs parallel root-cause specialists, and only then asks a model to classify and propose a fix. A Basil-shaped test run validates the fix in a scratch workspace. The run ends as a report, a draft pull request, or an escalation.
+A small, readable map of an agentic debugging system. The code is a skeleton you can run. Each box in the diagram is one module, with a stated input and a stated output. Vendor APIs and the language model are extension points, not the thing you have to understand first.
 
-[ARCHITECTURE.md](ARCHITECTURE.md) is the design note: what the original pipeline was missing, and the contracts this code actually implements. Read that first if you are here to learn the shape. This file is how to run and extend it.
+## The picture
 
-The graph is built with [LangGraph](https://langchain-ai.github.io/langgraph/). The default model is scripted, so the checkout scenario is reproducible without an API key.
+```mermaid
+graph TD
+    A[1. Collect] --> P[2. Policy]
+    P -->|not enough evidence| Z[7. Finalize]
+    P -->|enough evidence| R[3. Specialists, in parallel]
 
-## Run the checkout incident
+    R --> B1[Breadcrumb]
+    R --> B2[Crash correlation]
+    R --> B3[Change correlation]
+    R --> B4[Dependency]
+    B1 & B2 & B3 & B4 --> S[4. Classify]
+    S -->|observe only, or ungrounded| Z
+    S --> M[5. Plan a mitigation]
+    M --> V[6. Basil validates]
+    V -->|failed, one retry left| M
+    V -->|passed| G[Approval]
+    V -->|still failing| Z
+    G --> Z
+```
 
-The fixture is a payment capture timeout. Twelve minutes after `checkout.async_capture` ramps to 100, ledger captures start failing because the async path forwards an empty idempotency key. A deploy of checkout 1.42.0 landed in the lookback window and introduced that path.
+Collection is deterministic. Specialists read evidence and return claims with fact ids. The model is only allowed to choose among those claims, then to propose a fix. Basil has to pass before a diff is offered to a person. A pull request is one possible ending, not the only one.
+
+## Read the code in this order
+
+| Order | File | What you learn |
+| --- | --- | --- |
+| 1 | [`debug_agent/graph.py`](debug_agent/graph.py) | The boxes and arrows. Start here. |
+| 2 | [`debug_agent/state.py`](debug_agent/state.py) | The object passed along those arrows. |
+| 3 | [`debug_agent/stages/collect.py`](debug_agent/stages/collect.py) | Load the incident, call connectors, redact secrets. |
+| 4 | [`debug_agent/connectors.py`](debug_agent/connectors.py) | The slot where Jaeger, an MCP tool, or a fixture fits. |
+| 5 | [`debug_agent/stages/policy.py`](debug_agent/stages/policy.py) | Who is allowed to edit what. This is code, not a prompt. |
+| 6 | [`debug_agent/specialists.py`](debug_agent/specialists.py) | Four parallel readers. None of them decides the cause. |
+| 7 | [`debug_agent/stages/classify.py`](debug_agent/stages/classify.py) | The model picks a hypothesis id, or the run stops. |
+| 8 | [`debug_agent/stages/plan.py`](debug_agent/stages/plan.py) | First a reversible flag change, then a code edit. |
+| 9 | [`debug_agent/stages/validate.py`](debug_agent/stages/validate.py) | The Basil box. A failure goes back to the planner. |
+| 10 | [`debug_agent/stages/finalize.py`](debug_agent/stages/finalize.py) | Report, draft review, or escalation. |
+
+[`ARCHITECTURE.md`](ARCHITECTURE.md) is the short note on why the pipeline is shaped this way instead of as one prompt.
+
+## Run the sample
+
+The sample is [`examples/checkout_async_capture.json`](examples/checkout_async_capture.json). Checkout starts timing out after the flag `checkout.async_capture` ramps to 100. The async path forwards an empty idempotency key.
 
 ```bash
 pip install -e ".[dev]"
-python -m debug_agent run scenarios/checkout_async_capture
+python -m debug_agent
 python -m debug_agent graph
-```
-
-The run writes `runs/checkout_async_capture/`:
-
-| File | What it is |
-| --- | --- |
-| `report.md` | Coverage, specialist findings, diagnosis, both attempts, audit trail |
-| `pull_request.md` | Review body, including rollback |
-| `diff.patch` | Unified diff of the durable fix |
-| `model_transcript.json` | Every prompt and response |
-| `state.json` | Redacted evidence and decisions |
-| `workspace/` | Scratch tree Basil tested. The scenario sources are untouched |
-
-What the two attempts teach:
-
-1. The planner ramps the flag back to 0. That is the right operational mitigation, and it does not make the unit test pass, because the test holds the flag on and demands a key.
-2. Basil's critique goes back to the planner. The second plan mints a key on the async path. Basil passes. Policy is `propose` because this is production payments, so the outcome is a draft pull request rather than an apply.
-
-## Layout
-
-```
-debug_agent/
-  connectors/    registry, fixtures, and vendor adapters
-  specialists/   breadcrumb, crash, change, dependency
-  runners/       Basil result contract and pytest/tmt engines
-  policy.py      autonomy and approval, in code
-  prompts.py     the only two judgment prompts, plus crash narration
-  models.py      scripted model and OpenAI-compatible client
-  graph.py       LangGraph topology
-  service.py     run_debug entry point
-scenarios/checkout_async_capture/
-tests/           graph, policy, connectors, redaction
-```
-
-## Use a live model
-
-```bash
-export DEBUG_AGENT_MODEL=openai
-export OPENAI_API_KEY=...
-export OPENAI_BASE_URL=https://api.openai.com/v1   # optional
-export OPENAI_MODEL=gpt-4o-mini                     # optional
-python -m debug_agent run scenarios/checkout_async_capture
-```
-
-The live model has to return the JSON schemas in `debug_agent/prompts.py`. Classification is rejected when the hypothesis id or a cited fact id was not produced by a specialist. A bad edit fails Basil and comes back as a critique until the attempt budget is spent.
-
-## Register a real backend
-
-Fixtures are the default for every capability. Set any of these to add a vendor connector beside them:
-
-| Variable | Capability | Adapter |
-| --- | --- | --- |
-| `JAEGER_URL` | traces | `GET /api/traces` |
-| `LOKI_URL` | logs | Loki query_range |
-| `PROMETHEUS_URL` | metrics | PromQL query_range |
-| `PAGERDUTY_URL` + `PAGERDUTY_TOKEN` | incidents | incidents list |
-| `LAUNCHDARKLY_URL` + `LAUNCHDARKLY_TOKEN` | feature flags | audit log subset |
-| `UNLEASH_URL` + `UNLEASH_TOKEN` | feature flags | admin events |
-| `GITHUB_DEPLOYMENTS_URL` + `GITHUB_TOKEN` | deploys | deployment objects |
-
-Each adapter normalizes into the schema in [ARCHITECTURE.md](ARCHITECTURE.md). Specialists never branch on the vendor name. The parsers are unit-tested with sample payloads, so you can see the subset they accept before pointing them at a cluster.
-
-To add a system that is not in that table, implement `collect(self, query)` and `registry.register(...)`. Unknown capabilities are rejected. A connector that raises is recorded on the coverage report and the rest of the fan-out continues.
-
-## Point validation at BASIL
-
-The validation node speaks `basil-result.v1` and records the tmt context BASIL uses (`basil_test_repo_url`, `basil_test_repo_ref`, `basil_test_relative_path`). The checkout scenario includes `tests/main.fmf` for that reason.
-
-The default engine is pytest, isolated from this repo's own pytest config. If you have [tmt](https://tmt.readthedocs.io/) installed:
-
-```bash
-export DEBUG_AGENT_BASIL_ENGINE=tmt
-```
-
-A real BASIL deployment should consume the same result object. This prototype does not guess a private REST path.
-
-## Tests
-
-```bash
 pytest
 ```
 
-The graph test runs the checkout scenario end to end: flag ramp fails Basil, the code edit passes, secrets from the log fixture are absent from the report, and a sev-1 copy of the same incident stops after diagnosis.
+You should see two validation attempts. The flag ramp fails the stand-in Basil check, because a test that holds the flag on still demands a key. The code edit passes. Policy is `propose` (production payments), so the ending is `draft_pr`. The writeup is `runs/checkout_async_capture/report.md`.
 
-## What this will not do
+The model in that run is `scripted_choice` in `stages/classify.py` and `scripted_plan` in `stages/plan.py`. They return the JSON a live model would return. The checks around them are the part to keep when you replace them.
 
-- It will not edit `scenarios/` in place. Plans apply to a copy under the run directory.
-- It will not open a GitHub pull request. `draft_pr` means the diff and the review body are ready for a publisher you control.
-- It will not roll back a deploy. A `rollback` action is stored and reported. There is no deploy-write connector.
-- It will not treat a model narrative as evidence. Cited ids have to exist.
+## Where a real system plugs in
+
+| You have | You change |
+| --- | --- |
+| Jaeger, Tempo, Honeycomb, or an MCP trace tool | A class like `JaegerConnector` in `connectors.py`. Register it. Do not edit a specialist. |
+| LaunchDarkly, Unleash, or a flag MCP tool | A class like `FlagConnector`. Same evidence shape as the fixture. |
+| A language model | Replace `scripted_choice` and `scripted_plan`. Keep `accept_classification`. |
+| BASIL or another test runner | Replace the body of `basil_check`. Keep the result keys, including the tmt fields. |
+| Another way of looking at an incident | Add a function in `specialists.py` and one line in `SPECIALISTS` in `graph.py`. |
+
+Connectors normalize. Specialists cite facts. The model does not see raw vendor payloads, and it does not get to invent a fact id. That split is the whole design.
+
+## What this skeleton does not do
+
+It does not call Jaeger, a model provider, or a BASIL server. It does not edit a repository or open a pull request. Those are named extension points so the control flow stays visible.

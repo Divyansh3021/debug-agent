@@ -1,6 +1,0 @@
-summary: Checkout capture stays idempotent when async capture is on
-description: >
-    Fails while the async path forwards a missing idempotency key to the ledger.
-test: python3 -m pytest -q tests
-duration: 2m
-tier: "1"
