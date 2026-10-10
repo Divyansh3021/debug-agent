@@ -1,0 +1,14 @@
+{
+  "id": "INC-1042",
+  "title": "Checkout payment captures timing out",
+  "service": "checkout",
+  "environment": "production",
+  "severity": "sev2",
+  "symptom": "Spike in ledger.capture timeouts after the async capture rollout",
+  "sensitive_domains": ["payments"],
+  "lookback_minutes": 60,
+  "window": {
+    "start": "2026-04-11T15:40:00Z",
+    "end": "2026-04-11T16:10:00Z"
+  }
+}
