@@ -1,8 +1,7 @@
-"""The object that moves along the graph.
+"""What passes from one box to the next.
 
-Read this after ``graph.py``. Every node reads some of these fields and
-returns a partial update. Fields marked "appended" use a reducer so parallel
-specialists can write them at the same time without overwriting each other.
+Read this after graph.py. A node returns only the fields it fills in.
+Fields marked "appended" can be written by several specialists at once.
 """
 
 from __future__ import annotations
@@ -12,25 +11,22 @@ from typing import Annotated, Any, TypedDict
 
 
 class DebugState(TypedDict, total=False):
-    # Input. Set by the caller before the graph starts.
-    example_path: str
-    run_dir: str
+    incident: dict[str, Any]
 
     # collect
-    incident: dict[str, Any]
     evidence: list[dict[str, Any]]
     coverage: dict[str, Any]
 
-    # policy. One of: needs_data, observe_only, propose, auto_fix.
+    # policy: needs_data, observe_only, propose, or auto_fix
     policy: dict[str, Any]
 
-    # specialists. Appended, one hypothesis list per branch.
+    # specialists, appended
     hypotheses: Annotated[list[dict[str, Any]], operator.add]
 
     # classify
     diagnosis: dict[str, Any]
 
-    # plan → validate, possibly more than once.
+    # plan and validate, appended across retries
     plan: dict[str, Any]
     plans: Annotated[list[dict[str, Any]], operator.add]
     validation: dict[str, Any]
@@ -38,12 +34,9 @@ class DebugState(TypedDict, total=False):
     attempt: int
     critiques: Annotated[list[str], operator.add]
 
-    # approve + finalize
+    # approve and finalize
     approval: dict[str, Any]
     outcome: dict[str, Any]
-
-    # One human-readable line per node, in the order nodes finished.
-    log: Annotated[list[str], operator.add]
 
 
 def hypothesis(
@@ -54,20 +47,15 @@ def hypothesis(
     confidence: float,
     facts: list[tuple[str, str]],
 ) -> dict[str, Any]:
-    """A claim a specialist is willing to defend.
+    """One claim from one specialist.
 
-    ``facts`` are the only statements a later model is allowed to cite.
-    Confidence belongs to the specialist. The classifier does not raise it.
+    ``facts`` are the only statements classify is allowed to cite.
+    Confidence stays with the specialist. The model does not raise it.
     """
     return {
         "id": id,
         "specialist": specialist,
         "summary": summary,
-        "confidence": round(confidence, 2),
+        "confidence": confidence,
         "facts": [{"id": fact_id, "statement": text} for fact_id, text in facts],
     }
-
-
-def note(node: str, message: str) -> dict[str, list[str]]:
-    """A one-line audit entry. Every node returns one."""
-    return {"log": [f"{node}: {message}"]}

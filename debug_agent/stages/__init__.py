@@ -1,1 +1,1 @@
-"""One module per box in the diagram. Read them in the order listed in the README."""
+"""One file per box. The README lists them in reading order."""

@@ -1,75 +1,40 @@
-# debug-agent
+# Debugging agent
 
-A small, readable map of an agentic debugging system. The code is a skeleton you can run. Each box in the diagram is one module, with a stated input and a stated output. Vendor APIs and the language model are extension points, not the thing you have to understand first.
+This is the architecture of an agentic debugging system. Each file is one box. Read them in order. The function bodies are stubs, so you can see the shape without a vendor, a model, or a sample incident.
 
-## The picture
+An incident comes in. Evidence is gathered. A policy decides whether the agent may act. Several specialists read that evidence at the same time. Only then does a model choose a cause and propose a fix. A test run has to pass before a change is offered for review.
 
 ```mermaid
 graph TD
-    A[1. Collect] --> P[2. Policy]
-    P -->|not enough evidence| Z[7. Finalize]
-    P -->|enough evidence| R[3. Specialists, in parallel]
+    A[Collect] --> P[Policy]
+    P -->|not enough evidence| Z[Finalize]
+    P -->|enough evidence| R[Specialists, in parallel]
 
     R --> B1[Breadcrumb]
     R --> B2[Crash correlation]
     R --> B3[Change correlation]
     R --> B4[Dependency]
-    B1 & B2 & B3 & B4 --> S[4. Classify]
-    S -->|observe only, or ungrounded| Z
-    S --> M[5. Plan a mitigation]
-    M --> V[6. Basil validates]
+    B1 & B2 & B3 & B4 --> S[Classify]
+    S -->|not allowed to act, or ungrounded| Z
+    S --> M[Plan]
+    M --> V[Basil]
     V -->|failed, one retry left| M
     V -->|passed| G[Approval]
     V -->|still failing| Z
     G --> Z
 ```
 
-Collection is deterministic. Specialists read evidence and return claims with fact ids. The model is only allowed to choose among those claims, then to propose a fix. Basil has to pass before a diff is offered to a person. A pull request is one possible ending, not the only one.
+## Read in this order
 
-## Read the code in this order
+1. [`debug_agent/graph.py`](debug_agent/graph.py) — the arrows. Start here.
+2. [`debug_agent/state.py`](debug_agent/state.py) — what those arrows carry.
+3. [`debug_agent/stages/collect.py`](debug_agent/stages/collect.py) — evidence in. No model.
+4. [`debug_agent/connectors.py`](debug_agent/connectors.py) — Jaeger, logs, and flags plug in here, not on the graph.
+5. [`debug_agent/stages/policy.py`](debug_agent/stages/policy.py) — whether the agent may change anything. This is code, not a prompt.
+6. [`debug_agent/specialists.py`](debug_agent/specialists.py) — four readers, started together.
+7. [`debug_agent/stages/classify.py`](debug_agent/stages/classify.py) — the model may only pick a claim a specialist already made.
+8. [`debug_agent/stages/plan.py`](debug_agent/stages/plan.py) — the model proposes one mitigation.
+9. [`debug_agent/stages/validate.py`](debug_agent/stages/validate.py) — Basil. A failure goes back to the planner.
+10. [`debug_agent/stages/finalize.py`](debug_agent/stages/finalize.py) — a report, a review, or a handoff.
 
-| Order | File | What you learn |
-| --- | --- | --- |
-| 1 | [`debug_agent/graph.py`](debug_agent/graph.py) | The boxes and arrows. Start here. |
-| 2 | [`debug_agent/state.py`](debug_agent/state.py) | The object passed along those arrows. |
-| 3 | [`debug_agent/stages/collect.py`](debug_agent/stages/collect.py) | Load the incident, call connectors, redact secrets. |
-| 4 | [`debug_agent/connectors.py`](debug_agent/connectors.py) | The slot where Jaeger, an MCP tool, or a fixture fits. |
-| 5 | [`debug_agent/stages/policy.py`](debug_agent/stages/policy.py) | Who is allowed to edit what. This is code, not a prompt. |
-| 6 | [`debug_agent/specialists.py`](debug_agent/specialists.py) | Four parallel readers. None of them decides the cause. |
-| 7 | [`debug_agent/stages/classify.py`](debug_agent/stages/classify.py) | The model picks a hypothesis id, or the run stops. |
-| 8 | [`debug_agent/stages/plan.py`](debug_agent/stages/plan.py) | First a reversible flag change, then a code edit. |
-| 9 | [`debug_agent/stages/validate.py`](debug_agent/stages/validate.py) | The Basil box. A failure goes back to the planner. |
-| 10 | [`debug_agent/stages/finalize.py`](debug_agent/stages/finalize.py) | Report, draft review, or escalation. |
-
-[`ARCHITECTURE.md`](ARCHITECTURE.md) is the short note on why the pipeline is shaped this way instead of as one prompt.
-
-## Run the sample
-
-The sample is [`examples/checkout_async_capture.json`](examples/checkout_async_capture.json). Checkout starts timing out after the flag `checkout.async_capture` ramps to 100. The async path forwards an empty idempotency key.
-
-```bash
-pip install -e ".[dev]"
-python -m debug_agent
-python -m debug_agent graph
-pytest
-```
-
-You should see two validation attempts. The flag ramp fails the stand-in Basil check, because a test that holds the flag on still demands a key. The code edit passes. Policy is `propose` (production payments), so the ending is `draft_pr`. The writeup is `runs/checkout_async_capture/report.md`.
-
-The model in that run is `scripted_choice` in `stages/classify.py` and `scripted_plan` in `stages/plan.py`. They return the JSON a live model would return. The checks around them are the part to keep when you replace them.
-
-## Where a real system plugs in
-
-| You have | You change |
-| --- | --- |
-| Jaeger, Tempo, Honeycomb, or an MCP trace tool | A class like `JaegerConnector` in `connectors.py`. Register it. Do not edit a specialist. |
-| LaunchDarkly, Unleash, or a flag MCP tool | A class like `FlagConnector`. Same evidence shape as the fixture. |
-| A language model | Replace `scripted_choice` and `scripted_plan`. Keep `accept_classification`. |
-| BASIL or another test runner | Replace the body of `basil_check`. Keep the result keys, including the tmt fields. |
-| Another way of looking at an incident | Add a function in `specialists.py` and one line in `SPECIALISTS` in `graph.py`. |
-
-Connectors normalize. Specialists cite facts. The model does not see raw vendor payloads, and it does not get to invent a fact id. That split is the whole design.
-
-## What this skeleton does not do
-
-It does not call Jaeger, a model provider, or a BASIL server. It does not edit a repository or open a pull request. Those are named extension points so the control flow stays visible.
+The arrows are a [LangGraph](https://langchain-ai.github.io/langgraph/). `python -m debug_agent` prints the same diagram from the code.

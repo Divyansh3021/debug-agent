@@ -1,4 +1,4 @@
-from debug_agent.cli import main
+from debug_agent.graph import draw_mermaid
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    print(draw_mermaid())

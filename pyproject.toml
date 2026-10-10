@@ -4,22 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "debug-agent"
-version = "0.1.0"
-description = "A readable skeleton of an agentic debugging system, built with LangGraph."
+version = "0.2.0"
+description = "Architecture skeleton of an agentic debugging system."
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["langgraph>=1.0"]
 
-[project.optional-dependencies]
-dev = ["pytest>=8"]
-
-[project.scripts]
-debug-agent = "debug_agent.cli:main"
-
 [tool.setuptools.packages.find]
 include = ["debug_agent*"]
-
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-norecursedirs = ["scenarios", "runs", ".git", "*.egg-info"]
-addopts = "-q"
